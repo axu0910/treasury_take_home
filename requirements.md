@@ -176,21 +176,19 @@ The implementation will be assessed on:
 
 ## 10. Requirements Tensions and Resolution
 
-No hard requirements conflict with one another. The brief does contain practical tensions:
+The brief does contain practical tensions:
 
 | Tension | Recommended resolution |
 | --- | --- |
 | Approximately 5-second single-label response versus difficult images | Use a fast synchronous path, basic preprocessing, confidence thresholds, and manual review for hard cases. |
 | Large batch uploads versus responsive UI | Process batches asynchronously with a queue, worker pool, progress reporting, and per-item errors. |
 | Exact warning wording and bold formatting versus OCR limitations | Use OCR for text equality and layout/computer-vision signals for formatting; route uncertain cases to an agent. |
-| Zero-cost local execution versus cloud AI services | Use local/open-source OCR and extraction; treat cloud AI as a future adapter, not a runtime dependency. |
 | Human judgment versus automated pass/fail results | Treat automation as a recommendation and preserve agent confirmation, correction, and override actions. |
 | Prototype simplicity versus production security expectations | Keep the prototype standalone and low-data, while documenting production security boundaries and deferred controls. |
 
 ## 11. Assumptions
 
 - The prototype may use synthetic or non-sensitive sample applications and label images.
-- The prototype runs locally with no cloud infrastructure, paid service, or API subscription.
 - All required processing is available with network access disabled.
 - The application does not need to modify COLA or submit official regulatory decisions.
 - The agent remains accountable for the final compliance decision.
