@@ -1,6 +1,6 @@
 # Local Alcohol Label Verification
 
-Local-first prototype for comparing alcohol label artwork with application data. The system is designed to run at no cost on one machine or a private local network, with no cloud infrastructure or paid API dependency.
+Local-first prototype for comparing alcohol label artwork with application data. The system is designed to run at no cost on one machine or a private local network, with no cloud infrastructure or paid API dependency. This can be scaled into cloud services.
 
 ## What It Does
 
