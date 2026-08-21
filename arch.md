@@ -4,16 +4,16 @@
 
 ```mermaid
 flowchart LR
-    Applicant[Importer / Applicant] -->|Application fields + label image(s)| ReviewUI
-    Agent[TTB Compliance Agent] -->|Upload, review, override, export| ReviewUI
-    ReviewUI[Label Verification Web App]
-    ReviewUI --> Verification[Verification Platform]
-    Verification --> Results[Pass / Review / Fail results]
+    Applicant["Importer / Applicant"] -->|"Application fields + label image(s)"| ReviewUI
+    Agent["TTB Compliance Agent"] -->|"Upload, review, override, export"| ReviewUI
+    ReviewUI["Label Verification Web App"]
+    ReviewUI --> Verification["Verification Platform"]
+    Verification --> Results["Pass / Review / Fail results"]
     Results --> Agent
 
-    Verification -.->|Future, out of prototype scope| COLA[COLA System<br/>Existing .NET platform]
-    Verification --> Audit[Audit and operational logs]
-    Verification -->|No cloud or paid service dependency| Local[Local host / local network]
+    Verification -.->|"Future, out of prototype scope"| COLA["COLA System<br/>Existing .NET platform"]
+    Verification --> Audit["Audit and operational logs"]
+    Verification -->|"No cloud or paid service dependency"| Local["Local host / local network"]
 ```
 
 ## Technology Decisions
