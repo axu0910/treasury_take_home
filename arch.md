@@ -249,6 +249,7 @@ flowchart TB
 ```
 
 - **Prototype boundary:** standalone local application; no direct COLA integration, cloud infrastructure, paid APIs, or outbound network dependency.
+- **Deployed-URL exception:** the brief separately requires a reachable deployed URL for evaluators, which is unavoidably cloud-hosted. The resolution is to deploy the identical container image (same local Tesseract binary, same rules engine, no external OCR/AI service) to a free Docker-capable host rather than to introduce any paid or hosted processing dependency. This is a deliberate, documented exception to the local-only requirement made solely to satisfy the deliverable, not a change to how the pipeline itself processes data. See [README.md](README.md) "Deployment" for the free-tier setup and its cold-start/ephemeral-disk caveats.
 - **Performance target:** return a single-label result in approximately 5 seconds or less under normal conditions. Batch jobs are asynchronous and expose progress instead of blocking the agent.
 - **Human-in-the-loop:** automated results are recommendations. Agents can inspect OCR evidence, correct extracted values, replace poor images, and override the result.
 - **AI/OCR boundary:** the adapter uses local/open-source or already-installed components. External providers are not required for the zero-cost prototype, and processing remains functional with outbound traffic disabled.

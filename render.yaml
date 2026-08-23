@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: label-verification
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
