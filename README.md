@@ -167,9 +167,9 @@ Any other Docker-friendly free host (Fly.io, Hugging Face Spaces with the Docker
 
 ## Current Limitations
 
-- Batch verification now accepts multiple images and returns per-image check lists; a durable asynchronous worker pool and richer batch export remain future work.
+- Batch verification runs asynchronously: the API returns immediately with a `batch_id` and a background thread pool (6 concurrent workers) processes items, with the frontend polling `GET /api/verifications/batch/{batch_id}` for live progress. The job registry is in-memory (fine for this prototype's single-process deployment) rather than a durable queue, so in-flight batch progress does not survive a restart; a richer export remains future work.
 - Field extraction is intentionally heuristic in this prototype and should be expanded with beverage-type-specific rules and stronger layout analysis.
-- Brand names use conservative fuzzy matching (similarity threshold 0.88), and ABV values match within 0.5 percentage points; these tolerances should be reviewed before production use.
+- Brand names within 0.88-1.0 similarity but not identical after case/whitespace normalization are routed to manual review rather than auto-approved, since that range can't reliably distinguish a harmless formatting difference from a genuine single-character OCR misread. ABV values match within 0.5 percentage points. Both tolerances should be reviewed before production use.
 - The prototype passes warning presence when the exact uppercase `GOVERNMENT WARNING:` prefix is detected. OCR does not independently prove full wording, bold typography, or placement, so those remain agent checks.
 - Tesseract must be installed locally for OCR. If unavailable, the API returns a manual-review state rather than using a cloud fallback.
 - The project is not an official COLA submission system.

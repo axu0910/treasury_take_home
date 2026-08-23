@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AlertCircle, Check, ChevronRight, Images, LoaderCircle, Upload } from "lucide-react";
 
-import { createBatchVerification, createVerification, type BatchVerificationResult } from "./api/client";
+import { createVerification, getBatchStatus, startBatchVerification, type BatchVerificationResult } from "./api/client";
 import type { VerificationResult } from "./types/verification";
 
 const fields = [
@@ -40,6 +40,16 @@ export default function App() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [batchPreviewUrls, setBatchPreviewUrls] = useState<string[]>([]);
   const requestSequence = useRef(0);
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopPolling() {
+    if (pollTimer.current !== null) {
+      clearInterval(pollTimer.current);
+      pollTimer.current = null;
+    }
+  }
+
+  useEffect(() => stopPolling, []);
 
   useEffect(() => {
     if (!file) {
@@ -94,15 +104,34 @@ export default function App() {
       setError("Choose two or more label images for a batch review.");
       return;
     }
+    stopPolling();
     setError(null);
     setResult(null);
     setBatchResult(null);
     setIsSubmitting(true);
     try {
-      setBatchResult(await createBatchVerification(batchFiles, { ...application }));
+      const started = await startBatchVerification(batchFiles, { ...application });
+      setBatchResult(started);
+      if (started.status === "completed") {
+        setIsSubmitting(false);
+        return;
+      }
+      pollTimer.current = setInterval(async () => {
+        try {
+          const progress = await getBatchStatus(started.batch_id);
+          setBatchResult(progress);
+          if (progress.status === "completed") {
+            stopPolling();
+            setIsSubmitting(false);
+          }
+        } catch (pollError) {
+          stopPolling();
+          setIsSubmitting(false);
+          setError(pollError instanceof Error ? pollError.message : "Lost track of batch progress.");
+        }
+      }, 1000);
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "Batch verification failed.");
-    } finally {
       setIsSubmitting(false);
     }
   }
@@ -183,7 +212,7 @@ export default function App() {
             {isSubmitting ? "Verifying locally..." : "Verify label"}
           </button> : <button className="secondary-action batch-run-action" type="button" onClick={submitBatch} disabled={isSubmitting || batchFiles.length < 1}>
             {isSubmitting ? <LoaderCircle className="spin" size={18} /> : <Images size={18} />}
-            {isSubmitting ? "Running batch checks..." : "Run batch checks"}
+            {isSubmitting && batchResult ? `Checking labels... (${batchResult.completed}/${batchResult.total})` : isSubmitting ? "Starting batch..." : "Run batch checks"}
           </button>}
         </div>
         {result && <VerificationResultView result={result} previewUrl={reviewedPreviewUrl} onReset={resetSingleReview} />}
@@ -194,9 +223,20 @@ export default function App() {
 }
 
 function BatchResultView({ result, previewUrls }: { result: BatchVerificationResult; previewUrls: string[] }) {
+  const percent = result.total > 0 ? Math.round((result.completed / result.total) * 100) : 0;
   return (
     <section className="result-panel" aria-live="polite">
-      <div className="result-header"><div><p className="eyebrow">Batch result</p><h2>{result.completed} of {result.total} checked</h2></div></div>
+      <div className="result-header">
+        <div>
+          <p className="eyebrow">Batch result</p>
+          <h2>{result.status === "processing" ? `Checking labels... ${result.completed} of ${result.total}` : `${result.completed} of ${result.total} checked`}</h2>
+        </div>
+      </div>
+      {result.status === "processing" && (
+        <div className="batch-progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+          <div className="batch-progress-fill" style={{ width: `${percent}%` }} />
+        </div>
+      )}
       <div className="batch-results">
         {result.results.map((item, index) => (
           <details className="batch-row" key={item.verification_id}>

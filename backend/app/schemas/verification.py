@@ -47,4 +47,5 @@ class BatchVerificationResult(BaseModel):
     batch_id: str
     total: int
     completed: int
+    status: Literal["processing", "completed"] = "completed"
     results: list[VerificationResult] = Field(default_factory=list)
