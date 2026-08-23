@@ -76,7 +76,9 @@ def test_extraction_classifies_winery_label_as_wine_and_cleans_brand() -> None:
 
     assert extracted.brand_name == "Hawk's Shadow"
     assert extracted.class_type == "WINE"
-    assert extracted.producer == "Hawk's Shadow Estate"
+    # The same-line "by SS" remainder is too short to be a real value, so extraction
+    # generically falls back to the next line rather than a brand-specific lookup.
+    assert extracted.producer == "Hawk's Shadow Estate Winery"
 
 
 def test_warning_detection_survives_ocr_truncating_prefix() -> None:
@@ -90,7 +92,10 @@ def test_warning_detection_survives_ocr_truncating_prefix() -> None:
     assert extracted.government_warning == "GOVERNMENT WARNING:"
 
 
-def test_wine_label_fallbacks_recover_known_small_print_fields() -> None:
+def test_fields_absent_from_ocr_text_are_reported_as_missing_not_guessed() -> None:
+    """Extraction must never fabricate a value it has no evidence for; fields the OCR
+    text doesn't contain should come back as None so the comparison step routes them
+    to manual review instead of silently passing."""
     words = [
         OCRWord("MASSETO", 1.0, (0, 0, 70, 10)),
         OCRWord("TOSCANA", 1.0, (0, 20, 70, 10)),
@@ -98,8 +103,7 @@ def test_wine_label_fallbacks_recover_known_small_print_fields() -> None:
 
     extracted = extract_fields(words)
 
-    assert extracted.brand_name == "MASSETO"
-    assert extracted.class_type == "WINE"
-    assert extracted.alcohol_content == "15% ALC/VOL"
-    assert extracted.net_contents == "750 mL"
-    assert extracted.producer == "MASSETO S.R.L."
+    assert extracted.brand_name == "MASSETO TOSCANA"
+    assert extracted.alcohol_content is None
+    assert extracted.net_contents is None
+    assert extracted.producer is None
