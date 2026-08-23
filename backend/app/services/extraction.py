@@ -28,6 +28,13 @@ def extract_fields(words: list["OCRWord"]) -> ExtractedFields:
         warning = raw_text[warning_match.start() :].strip()
         if not warning.upper().startswith("GOVERNMENT WARNING:"):
             warning = "GOVERNMENT WARNING:" + warning[warning_match.end() - warning_match.start() :]
+        # The required warning is a single sentence ending in one period. Bound the capture
+        # to that sentence so unrelated OCR text after the warning region on the label (a
+        # sulfite declaration, a barcode, a website) doesn't get folded into the extracted
+        # value and cause an otherwise letter-perfect warning to fail the exact-match check.
+        sentence_end = warning.find(".")
+        if sentence_end != -1:
+            warning = warning[: sentence_end + 1]
     else:
         warning = None
 

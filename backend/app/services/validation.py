@@ -96,9 +96,24 @@ def compare_fields(application: ExtractedFields, label: ExtractedFields) -> list
             checks.append(
                 FieldCheck(field, "missing", application_value, label_value, 0.0, "Neither value was provided or detected.")
             )
+        elif field == "brand_name" and normalize_text(application_value) == normalize_text(label_value):
+            checks.append(FieldCheck(field, "match", application_value, label_value, 1.0, "Case/whitespace-normalized match."))
         elif field == "brand_name" and _brand_similarity(application_value, label_value) >= 0.88:
+            # Close but not identical even after normalization: this range also contains
+            # genuine single-character OCR misreads (e.g. "Throw" vs "Throe"), which a pure
+            # similarity score can't distinguish from a harmless formatting difference. Route
+            # to review rather than silently auto-approving a name that isn't actually equal.
             similarity = _brand_similarity(application_value, label_value)
-            checks.append(FieldCheck(field, "match", application_value, label_value, similarity, "Fuzzy brand match."))
+            checks.append(
+                FieldCheck(
+                    field,
+                    "review",
+                    application_value,
+                    label_value,
+                    similarity,
+                    f"Brand names are similar ({similarity:.0%} match) but not identical after normalization; confirm this is the same brand before approving.",
+                )
+            )
         elif field == "alcohol_content":
             application_abv = _alcohol_value(application_value)
             label_abv = _alcohol_value(label_value)
