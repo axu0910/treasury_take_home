@@ -82,11 +82,10 @@ def _words_from_data(data) -> list[OCRWord]:
     return words
 
 
-def _candidate_quality(words: list[OCRWord]) -> tuple[int, int, float]:
+def _candidate_quality(words: list[OCRWord]) -> tuple[int, float]:
     from app.services.extraction import extract_fields
 
     extracted = extract_fields(words)
-    brand_quality = 1 if extracted.brand_name == "KENDALL-JACKSON" else 0
     field_count = sum(value is not None for value in (
         extracted.brand_name,
         extracted.class_type,
@@ -97,7 +96,7 @@ def _candidate_quality(words: list[OCRWord]) -> tuple[int, int, float]:
         extracted.government_warning,
     ))
     confidence = sum(word.confidence for word in words) / len(words) if words else 0.0
-    return field_count, brand_quality, confidence
+    return field_count, confidence
 
 
 def _find_tesseract() -> str | None:
