@@ -43,6 +43,7 @@ h2 { max-width: 620px; margin-bottom: 14px; font-size: clamp(2rem, 4vw, 3.8rem);
 .primary-action:disabled { opacity: 0.6; cursor: wait; }
 .primary-action, .secondary-action, .batch-picker { margin-top: 0; }
 .batch-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 22px; border: 1px solid #cdbfa9; border-radius: 8px; padding: 22px 24px; background: rgba(238, 240, 220, 0.56); }
+.dedicated-batch-panel { min-height: 390px; margin-top: 10px; }
 .batch-panel-copy { display: flex; align-items: flex-start; gap: 14px; color: #5e633e; }
 .batch-panel-copy h3 { margin: 0 0 7px; color: #24251f; font: 700 1.05rem Arial, sans-serif; }
 .batch-panel-copy p:last-child { max-width: 540px; margin: 0; color: #69695e; font: 0.84rem/1.45 Arial, sans-serif; }
@@ -92,6 +93,7 @@ h2 { max-width: 620px; margin-bottom: 14px; font-size: clamp(2rem, 4vw, 3.8rem);
   .workspace { grid-template-columns: minmax(0, 1fr); }
   .upload-panel, .form-grid { grid-column: 1; }
   .upload-panel { min-height: 300px; }
+  .dedicated-batch-panel { min-height: 300px; }
 }
 
 @media (max-width: 600px) {
@@ -107,6 +109,7 @@ h2 { max-width: 620px; margin-bottom: 14px; font-size: clamp(2rem, 4vw, 3.8rem);
   .form-grid { grid-template-columns: 1fr; }
   .section-heading h2 { white-space: normal; }
   .upload-panel { min-height: 280px; margin-top: 26px; }
+  .dedicated-batch-panel { min-height: 280px; margin-top: 26px; }
   .check-row { grid-template-columns: 1fr 0.8fr; }
   .check-row > .check-values { grid-column: 1 / -1; }
   .batch-row summary { grid-template-columns: 22px 48px minmax(0, 1fr) 0.8fr; }
