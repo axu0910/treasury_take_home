@@ -138,6 +138,26 @@ Uploaded source images are written to the local temporary upload directory only 
 - The prototype does not submit decisions to or modify COLA.
 - Network access may be disabled during runtime.
 
+## Deployment
+
+The prototype's local-first design (no cloud infrastructure, no paid API, works with outbound access disabled) describes how the *processing pipeline* works, not a ban on ever putting a URL in front of it. Evaluators still need a reachable URL, so the same code that runs locally is also deployed as a single Docker container on a free hosting tier - no code changes, no external OCR/AI service, no paid infrastructure. That container is technically "cloud-hosted," which is a deliberate, acknowledged exception to the letter of the local-only requirement, made only to satisfy the separate "deployed application URL" deliverable; everything the container does still runs the identical local Tesseract binary, with zero outbound calls to any third-party OCR or AI service.
+
+The [Dockerfile](Dockerfile) builds the Vite frontend and copies it into the FastAPI image (which also installs Tesseract), so one container serves both the UI and the API from a single origin - no CORS, no separate frontend host.
+
+### Deploy for free (Render)
+
+1. Push this repository to GitHub (already done if you're reading this from the repo).
+2. Create a free account at [render.com](https://render.com) (no credit card required for the free web service tier).
+3. In the Render dashboard, choose **New > Blueprint** and point it at this repository - it will pick up [render.yaml](render.yaml) automatically and build [Dockerfile](Dockerfile). (Alternatively, choose **New > Web Service**, select **Docker** as the environment, and leave the Dockerfile path as the repository root.)
+4. Select the **Free** instance type and deploy. Render assigns a public `https://<service-name>.onrender.com` URL once the build finishes.
+
+Any other Docker-friendly free host (Fly.io, Hugging Face Spaces with the Docker SDK) works the same way, since the app just needs a normal long-lived container - not a serverless function platform. Serverless hosts such as Vercel or Netlify are not suitable for the backend: their functions can't install the Tesseract system binary, their execution-time limits (seconds) are incompatible with the batch endpoint's 200-300 image workload, and their filesystem isn't persistent across invocations, which the SQLite store and temporary upload handling both rely on.
+
+### Free-tier caveats
+
+- **Cold starts.** Render's free web services spin down after 15 minutes of inactivity and take a moment to wake back up on the next request - the ~5-second response target applies to a warm instance, not the first request after idle.
+- **Ephemeral disk.** The free tier's filesystem resets on redeploy/restart, so `data/labels.db` and anything in `uploads/` do not persist across deploys. That's acceptable for a reviewable demo; a production deployment would attach a persistent volume or a managed database instead.
+
 ## Security and Data Handling
 
 - No external OCR, AI, cloud storage, or paid API is used at runtime.

@@ -184,6 +184,7 @@ The brief does contain practical tensions:
 | Large batch uploads versus responsive UI | Process batches asynchronously with a queue, worker pool, progress reporting, and per-item errors. |
 | Exact warning wording and bold formatting versus OCR limitations | Use OCR for text equality and layout/computer-vision signals for formatting; route uncertain cases to an agent. |
 | Human judgment versus automated pass/fail results | Treat automation as a recommendation and preserve agent confirmation, correction, and override actions. |
+| "No cloud infrastructure, local machine or local network only" versus the required deployed application URL (§7) | Deploy the identical local-only container (same Tesseract binary, same rules engine, no external OCR/AI service, zero paid infrastructure) to a free Docker-capable host. This is a deliberate, documented exception to the local-only requirement made only to satisfy the deployed-URL deliverable; it does not change how the pipeline itself processes data. See [README.md](README.md) "Deployment". |
 | Prototype simplicity versus production security expectations | Keep the prototype standalone and low-data, while documenting production security boundaries and deferred controls. |
 
 ## 11. Assumptions
