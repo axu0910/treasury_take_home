@@ -2,7 +2,7 @@
 
 A prototype for comparing alcohol label artwork with application data, for TTB compliance agent review.
 
-**Live demo:** [https://treasury-take-home-scwg.onrender.com/](https://treasury-take-home-scwg.onrender.com/) - deployed via the Render setup described in [Deployment](#deployment) below. It's a free-tier instance, so it spins down after 15 minutes idle; the first request after that can take up to a minute to wake it back up (see "Free-tier caveats").
+**Live demo:** [https://treasury-take-home-scwg.onrender.com/](https://treasury-take-home-scwg.onrender.com/) - deployed via the Render setup described in [Deployment](#deployment) below. It's a free-tier instance, so it spins down after 15 minutes idle and can take up to a minute to wake back up on the next request; a verification request itself (once awake) currently runs a few minutes on this tier rather than the ~5s local-OCR target, since the free instance's CPU is the bottleneck, not the app (see "Free-tier caveats").
 
 ## What It Does
 
@@ -196,6 +196,7 @@ Any other Docker-friendly free host (Fly.io, Hugging Face Spaces with the Docker
 ### Free-tier caveats
 
 - **Cold starts.** Render's free web services spin down after 15 minutes of inactivity and take a moment to wake back up on the next request - the ~5-second response target applies to a warm instance, not the first request after idle.
+- **Per-request latency on this tier.** The ~5-second target in requirements.md section 3 was measured on a real machine, not this free instance. Verified directly against the live demo: a cold-start request took ~160s, and a follow-up request against an already-warm instance still took ~140-360s (server-reported `processing_time_ms` vs. wall-clock time varied noticeably between the two, suggesting queuing/network overhead on top of the processing time itself). Extracted text was identical and correct both times, so this is a throughput issue from the free tier's shared/throttled CPU running Tesseract + RapidOCR inference, not a correctness bug. A paid Render instance type (or another host with a dedicated CPU, e.g. Fly.io) should bring this back down toward the ~5s target without any code changes, since it's the same Dockerfile either way.
 - **Ephemeral disk.** The free tier's filesystem resets on redeploy/restart, so `data/labels.db` and anything in `uploads/` do not persist across deploys. That's acceptable for a reviewable demo; a production deployment would attach a persistent volume or a managed database instead.
 - **Image and memory footprint.** The RapidOCR extra adds real weight to the Docker image (onnxruntime, opencv, and its bundled recognition models - roughly 150-200MB of additional installed dependencies) and holds an ONNXRuntime session in memory once first used. This fit comfortably within local testing, but a free-tier instance's RAM ceiling is worth watching if the deployed service seems to struggle - `app/services/rapid_ocr.py`'s `is_available()` check means the app still runs on Tesseract alone if this ever becomes a problem in a given deployment.
 
