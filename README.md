@@ -109,6 +109,19 @@ cd ..
 python3 -m compileall -q backend
 ```
 
+### Run the production build locally (Docker)
+
+The two dev-server steps above are for active development (hot reload, etc.). To run the exact same single-container build that's deployed on Render - useful as a sanity check before pushing a deploy, or if you just want one command instead of two terminals - build and run the [Dockerfile](Dockerfile) directly:
+
+```bash
+docker build -t label-verification .
+docker run --rm -p 8000:8000 \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  label-verification
+```
+
+Open `http://localhost:8000` - this single container serves both the built React frontend and the API from one origin, identical to what's running at the live demo URL. The `-e ANTHROPIC_API_KEY=...` line is optional; omit it entirely to run with local OCR only, same as the local dev setup above. `docker build` picks up whatever's in your working tree (including the two-stage frontend build - see the [Dockerfile](Dockerfile)), so a rebuild is required after any code change; there's no hot reload in this mode.
+
 ## Approach
 
 ```text
@@ -168,13 +181,15 @@ The [Dockerfile](Dockerfile) builds the Vite frontend and copies it into the Fas
 
 ### Deploy for free (Render)
 
-This is exactly how the live demo linked at the top of this README is running:
+This is exactly how the [live demo](https://treasury-take-home-scwg.onrender.com/) linked at the top of this README is running:
 
 1. Push this repository to GitHub (already done if you're reading this from the repo).
 2. Create a free account at [render.com](https://render.com) (no credit card required for the free web service tier).
 3. In the Render dashboard, choose **New > Blueprint** and point it at this repository - it will pick up [render.yaml](render.yaml) automatically and build [Dockerfile](Dockerfile). (Alternatively, choose **New > Web Service**, select **Docker** as the environment, and leave the Dockerfile path as the repository root.)
-4. Select the **Free** instance type and deploy. Render assigns a public `https://<service-name>.onrender.com` URL once the build finishes - Render builds the [Dockerfile](Dockerfile) directly (Node stage for the frontend, then the Python/Tesseract backend stage), so there's no separate build configuration to set beyond pointing it at this repo.
-5. Optionally, in the service's **Environment** tab, add `ANTHROPIC_API_KEY` (see [render.yaml](render.yaml) - it's declared with `sync: false` so Render won't ask for it in the Blueprint flow, only in the dashboard) to make the opt-in Claude extraction checkbox usable. The default local-OCR path works either way; without this key, the "Use Claude AI extraction" checkbox falls back to local OCR with an explanatory note rather than actually calling Claude.
+4. Select the **Free** instance type and deploy. Render assigns a public `https://<service-name>.onrender.com` URL once the build finishes - Render builds the [Dockerfile](Dockerfile) directly (Node stage for the frontend, then the Python/Tesseract backend stage), so there's no separate build configuration to set beyond pointing it at this repo. It's the same image the "Run the production build locally (Docker)" step above builds, so testing that locally first is a reasonable way to catch a build problem before Render does.
+5. Optionally, in the service's **Environment** tab, add `ANTHROPIC_API_KEY` (see [render.yaml](render.yaml) - it's declared with `sync: false` so Render won't ask for it in the Blueprint flow, only in the dashboard) to make the opt-in Claude extraction checkbox usable. The default local-OCR path works either way; without this key, the "Use Claude AI extraction" checkbox falls back to local OCR with an explanatory note rather than actually calling Claude. This is the only backend secret the app has - there's nothing else to configure.
+
+By default, a Render Blueprint service redeploys automatically whenever the connected branch (`main`) gets a new push; **Manual Deploy > Deploy latest commit** in the dashboard triggers the same build on demand if auto-deploy is off. Either way it's a full rebuild from the Dockerfile - a few minutes, not instant - and per "Free-tier caveats" below, in-memory batch jobs and anything in the ephemeral disk (SQLite data, temp uploads) do not carry over across that rebuild.
 
 Any other Docker-friendly free host (Fly.io, Hugging Face Spaces with the Docker SDK) works the same way, since the app just needs a normal long-lived container - not a serverless function platform. Serverless hosts such as Vercel or Netlify are not suitable for the backend: their functions can't install the Tesseract system binary, their execution-time limits (seconds) are incompatible with the batch endpoint's 200-300 image workload, and their filesystem isn't persistent across invocations, which the SQLite store and temporary upload handling both rely on.
 
