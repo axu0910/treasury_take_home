@@ -1,16 +1,22 @@
+import csv
+import io
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 
 from app.core.config import UPLOAD_DIR
-from app.db.database import save_verification
+from app.db.database import get_verification, record_override, save_verification
 from app.schemas.verification import (
     BatchVerificationResult,
     ExtractedFieldsResult,
+    OverrideInfo,
+    OverrideRequest,
     QualityResult,
     VerificationResult,
 )
@@ -64,6 +70,7 @@ async def create_verification(
     net_contents: str | None = Form(default=None),
     producer: str | None = Form(default=None),
     country_of_origin: str | None = Form(default=None),
+    use_claude: bool = Form(default=False),
 ) -> VerificationResult:
     if label_image.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=415, detail="Upload a PNG, JPG, or WEBP image.")
@@ -79,7 +86,7 @@ async def create_verification(
     application = _application_fields(brand_name, class_type, alcohol_content, net_contents, producer, country_of_origin)
 
     try:
-        result = verify_label(image_path, application, verification_id).model_copy(
+        result = verify_label(image_path, application, verification_id, use_claude=use_claude).model_copy(
             update={"source_filename": label_image.filename}
         )
         save_verification(verification_id, result.status, result.model_dump())
@@ -89,12 +96,64 @@ async def create_verification(
         image_path.with_name(f"{image_path.stem}-processed.png").unlink(missing_ok=True)
 
 
+@router.post("/verifications/{verification_id}/override", response_model=VerificationResult)
+def override_verification(verification_id: str, override: OverrideRequest) -> VerificationResult:
+    """Requirements.md 2.1: agents can manually correct extracted values or override the
+    automated result. Automated status is always a recommendation - this is the recorded,
+    final human decision, applied on top of the stored result and written to the append-only
+    overrides audit log (see app.db.database.record_override)."""
+    stored = get_verification(verification_id)
+    if stored is None:
+        raise HTTPException(status_code=404, detail="Verification not found.")
+
+    result = VerificationResult.model_validate(stored)
+    corrected_checks = [
+        check.model_copy(
+            update={
+                "label_value": override.corrected_fields[check.field],
+                "status": "match",
+                "reason": "Manually corrected by agent.",
+            }
+        )
+        if check.field in override.corrected_fields
+        else check
+        for check in result.checks
+    ]
+    override_info = OverrideInfo(
+        status=override.status,
+        previous_status=result.status,
+        note=override.note,
+        overridden_by=override.overridden_by,
+        corrected_fields=override.corrected_fields,
+        created_at=datetime.now(UTC).isoformat(),
+    )
+    updated = result.model_copy(update={"checks": corrected_checks, "status": override.status, "override": override_info})
+
+    save_verification(verification_id, updated.status, updated.model_dump())
+    record_override(
+        verification_id, result.status, override.status, override.corrected_fields, override.note, override.overridden_by
+    )
+    _sync_batch_job_result(verification_id, updated)
+    return updated
+
+
+def _sync_batch_job_result(verification_id: str, updated: VerificationResult) -> None:
+    """An overridden item may belong to a batch whose results the frontend is still polling
+    (or has already fetched) via GET /verifications/batch/{batch_id} - keep that in-memory
+    copy consistent with what was just persisted, so a corrected item doesn't keep showing its
+    stale pre-override status."""
+    with _batch_lock:
+        for job in _batch_jobs.values():
+            job["results"] = [updated if item.verification_id == verification_id else item for item in job["results"]]
+
+
 def _process_batch_item(
     verification_id: str,
     filename: str | None,
     content_type: str | None,
     content: bytes,
     application: ExtractedFields,
+    use_claude: bool,
 ) -> VerificationResult:
     if content_type not in ALLOWED_CONTENT_TYPES:
         return _rejected_result(verification_id, filename, "Unsupported file type; upload PNG, JPG, or WEBP.")
@@ -105,7 +164,9 @@ def _process_batch_item(
     image_path = UPLOAD_DIR / f"{verification_id}{extension}"
     image_path.write_bytes(content)
     try:
-        result = verify_label(image_path, application, verification_id).model_copy(update={"source_filename": filename})
+        result = verify_label(image_path, application, verification_id, use_claude=use_claude).model_copy(
+            update={"source_filename": filename}
+        )
         save_verification(verification_id, result.status, result.model_dump())
         return result
     except Exception as error:  # noqa: BLE001 - isolate one item's failure from the rest of the batch
@@ -119,10 +180,11 @@ def _run_batch(
     batch_id: str,
     items: list[tuple[str, str | None, str | None, bytes]],
     application: ExtractedFields,
+    use_claude: bool,
 ) -> None:
     def process(item: tuple[str, str | None, str | None, bytes]) -> VerificationResult:
         verification_id, filename, content_type, content = item
-        return _process_batch_item(verification_id, filename, content_type, content, application)
+        return _process_batch_item(verification_id, filename, content_type, content, application, use_claude)
 
     with ThreadPoolExecutor(max_workers=BATCH_WORKERS) as executor:
         # executor.map yields results in the original submission order (waiting on an
@@ -162,6 +224,7 @@ async def create_batch_verification(
     net_contents: str | None = Form(default=None),
     producer: str | None = Form(default=None),
     country_of_origin: str | None = Form(default=None),
+    use_claude: bool = Form(default=False),
 ) -> BatchVerificationResult:
     if not 1 <= len(label_images) <= 300:
         raise HTTPException(status_code=400, detail="Batch size must be between 1 and 300 images.")
@@ -183,10 +246,74 @@ async def create_batch_verification(
             "created_at": time.time(),
         }
 
-    background_tasks.add_task(_run_batch, batch_id, items, application)
+    # use_claude on a 200-300 item batch is a real time/cost commitment (Claude vision
+    # averaged ~10s/item in testing - see pipeline.verify_label), unlike the default local-OCR
+    # path; the frontend surfaces that tradeoff before an agent opts in for a batch, same
+    # toggle as the single-review path.
+    background_tasks.add_task(_run_batch, batch_id, items, application, use_claude)
     return _batch_response(batch_id)
 
 
 @router.get("/verifications/batch/{batch_id}", response_model=BatchVerificationResult)
 def get_batch_status(batch_id: str) -> BatchVerificationResult:
     return _batch_response(batch_id)
+
+
+_EXPORT_FIELDS = (
+    "brand_name",
+    "class_type",
+    "alcohol_content",
+    "net_contents",
+    "producer",
+    "country_of_origin",
+    "government_warning",
+)
+
+
+@router.get("/verifications/batch/{batch_id}/export")
+def export_batch(batch_id: str, format: str = "csv") -> Response:
+    """Requirements.md 2.6: 'Provide a useful export such as CSV or JSON where practical' so
+    an agent can work exceptions outside the browser tab (a spreadsheet, a ticketing queue,
+    etc.) instead of only ever reading results off the batch dashboard."""
+    batch = _batch_response(batch_id)
+
+    if format == "json":
+        body = batch.model_dump_json(indent=2)
+        media_type = "application/json"
+    elif format == "csv":
+        body = _batch_to_csv(batch)
+        media_type = "text/csv"
+    else:
+        raise HTTPException(status_code=400, detail="format must be 'csv' or 'json'.")
+
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{batch_id}.{format}"'},
+    )
+
+
+def _batch_to_csv(batch: BatchVerificationResult) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    header = ["verification_id", "source_filename", "status", "processing_time_ms", "ocr_confidence", "message"]
+    for field in _EXPORT_FIELDS:
+        header += [f"{field}_application_value", f"{field}_label_value", f"{field}_status"]
+    writer.writerow(header)
+
+    for item in batch.results:
+        checks_by_field = {check.field: check for check in item.checks}
+        row = [
+            item.verification_id,
+            item.source_filename or "",
+            item.status,
+            item.processing_time_ms,
+            round(item.quality.ocr_confidence, 4),
+            item.message or "",
+        ]
+        for field in _EXPORT_FIELDS:
+            check = checks_by_field.get(field)
+            row += [check.application_value if check else "", check.label_value if check else "", check.status if check else ""]
+        writer.writerow(row)
+
+    return buffer.getvalue()

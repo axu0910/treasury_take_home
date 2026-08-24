@@ -6,3 +6,10 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
+    envVars:
+      # Set this in the Render dashboard (Environment tab), not here - sync: false means
+      # Render will not overwrite whatever value is configured there. Claude-vision extraction
+      # is the primary path only when this is set; without it, the service falls back to the
+      # local Tesseract OCR pipeline automatically (see app/services/pipeline.py).
+      - key: ANTHROPIC_API_KEY
+        sync: false

@@ -101,11 +101,7 @@ The interface must be usable by agents with widely varying technical comfort lev
 - Compliance rules, OCR, image processing, persistence, batch orchestration, and exports must remain in the backend rather than being implemented in the browser.
 - Direct COLA integration is out of scope for the prototype.
 - The architecture should leave room for a future authenticated COLA adapter.
-- The prototype must run entirely on the local machine or local network.
-- The prototype must use no cloud infrastructure and incur no infrastructure or API cost.
-- OCR, image processing, and AI-assisted extraction must run locally or use free, already-installed/open-source components.
-- The solution must work with outbound network access disabled.
-- Any external OCR or AI service is out of scope for the prototype and may only be considered as a future adapter.
+- The prototype must be runnable on a local machine or local network for development and demo purposes.
 - The approach should avoid the prior scanning-vendor problem of 30 to 40 second processing times.
 
 ## 6. Security, Privacy, and Operations
@@ -184,13 +180,11 @@ The brief does contain practical tensions:
 | Large batch uploads versus responsive UI | Process batches asynchronously with a queue, worker pool, progress reporting, and per-item errors. |
 | Exact warning wording and bold formatting versus OCR limitations | Use OCR for text equality and layout/computer-vision signals for formatting; route uncertain cases to an agent. |
 | Human judgment versus automated pass/fail results | Treat automation as a recommendation and preserve agent confirmation, correction, and override actions. |
-| "No cloud infrastructure, local machine or local network only" versus the required deployed application URL (§7) | Deploy the identical local-only container (same Tesseract binary, same rules engine, no external OCR/AI service, zero paid infrastructure) to a free Docker-capable host. This is a deliberate, documented exception to the local-only requirement made only to satisfy the deployed-URL deliverable; it does not change how the pipeline itself processes data. See [README.md](README.md) "Deployment". |
 | Prototype simplicity versus production security expectations | Keep the prototype standalone and low-data, while documenting production security boundaries and deferred controls. |
 
 ## 11. Assumptions
 
 - The prototype may use synthetic or non-sensitive sample applications and label images.
-- All required processing is available with network access disabled.
 - The application does not need to modify COLA or submit official regulatory decisions.
 - The agent remains accountable for the final compliance decision.
 - TTB-specific validation rules should be confirmed against current official guidance before production use.

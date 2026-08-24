@@ -19,4 +19,12 @@ export interface VerificationResult {
     reason?: string | null;
   }>;
   message?: string;
+  override?: {
+    status: VerificationStatus;
+    previous_status: string;
+    note?: string | null;
+    overridden_by?: string | null;
+    corrected_fields: Record<string, string>;
+    created_at: string;
+  } | null;
 }

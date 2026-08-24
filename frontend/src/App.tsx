@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { AlertCircle, Check, ChevronRight, Images, LoaderCircle, Upload } from "lucide-react";
+import { AlertCircle, Check, ChevronRight, Download, Images, LoaderCircle, PenLine, Upload, X } from "lucide-react";
 
-import { createVerification, getBatchStatus, startBatchVerification, type BatchVerificationResult } from "./api/client";
+import {
+  batchExportUrl,
+  createVerification,
+  getBatchStatus,
+  overrideVerification,
+  startBatchVerification,
+  type BatchVerificationResult
+} from "./api/client";
 import type { VerificationResult } from "./types/verification";
 
 const fields = [
@@ -37,6 +44,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reviewMode, setReviewMode] = useState<ReviewMode>("single");
+  const [useClaude, setUseClaude] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [batchPreviewUrls, setBatchPreviewUrls] = useState<string[]>([]);
   const requestSequence = useRef(0);
@@ -86,7 +94,7 @@ export default function App() {
     const applicationSnapshot = { ...application };
     const submittedFile = file;
     try {
-      const nextResult = await createVerification(file, applicationSnapshot);
+      const nextResult = await createVerification(file, applicationSnapshot, useClaude);
       if (requestId === requestSequence.current) {
         setReviewedPreviewUrl(URL.createObjectURL(submittedFile));
         setFile(null);
@@ -110,7 +118,7 @@ export default function App() {
     setBatchResult(null);
     setIsSubmitting(true);
     try {
-      const started = await startBatchVerification(batchFiles, { ...application });
+      const started = await startBatchVerification(batchFiles, { ...application }, useClaude);
       setBatchResult(started);
       if (started.status === "completed") {
         setIsSubmitting(false);
@@ -169,6 +177,17 @@ export default function App() {
           <button className={reviewMode === "single" ? "mode-tab active" : "mode-tab"} type="button" role="tab" aria-selected={reviewMode === "single"} onClick={() => setReviewMode("single")}>Single Review</button>
           <button className={reviewMode === "batch" ? "mode-tab active" : "mode-tab"} type="button" role="tab" aria-selected={reviewMode === "batch"} onClick={() => setReviewMode("batch")}>Batch Review</button>
         </div>
+        <label className="claude-toggle">
+          <input type="checkbox" checked={useClaude} onChange={(event) => setUseClaude(event.target.checked)} />
+          <span>
+            <strong>Use Claude AI extraction</strong>
+            <small>
+              {reviewMode === "batch"
+                ? "Higher accuracy on hard photos, but several seconds slower per label and uses paid API calls for every image in the batch. Off by default: local processing (~5s) is used unless checked."
+                : "Higher accuracy on hard photos (glare, curved bottles, angled shots), but several seconds slower and uses a paid API call. Off by default: local processing (~5s) is used unless checked."}
+            </small>
+          </span>
+        </label>
         <div className="form-grid">
           {fields.map(([name, label]) => (
             <label className="field" key={name}>
@@ -209,28 +228,61 @@ export default function App() {
         <div className="review-actions">
           {reviewMode === "single" ? result ? null : <button className="primary-action" type="submit" disabled={isSubmitting}>
             {isSubmitting ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />}
-            {isSubmitting ? "Verifying locally..." : "Verify label"}
+            {isSubmitting ? (useClaude ? "Verifying with Claude AI..." : "Verifying locally...") : "Verify label"}
           </button> : <button className="secondary-action batch-run-action" type="button" onClick={submitBatch} disabled={isSubmitting || batchFiles.length < 1}>
             {isSubmitting ? <LoaderCircle className="spin" size={18} /> : <Images size={18} />}
             {isSubmitting && batchResult ? `Checking labels... (${batchResult.completed}/${batchResult.total})` : isSubmitting ? "Starting batch..." : "Run batch checks"}
           </button>}
         </div>
-        {result && <VerificationResultView result={result} previewUrl={reviewedPreviewUrl} onReset={resetSingleReview} />}
-        {batchResult && <BatchResultView result={batchResult} previewUrls={batchPreviewUrls} />}
+        {result && (
+          <VerificationResultView
+            result={result}
+            previewUrl={reviewedPreviewUrl}
+            onReset={resetSingleReview}
+            onOverridden={(updated) => setResult(updated)}
+          />
+        )}
+        {batchResult && (
+          <BatchResultView
+            result={batchResult}
+            previewUrls={batchPreviewUrls}
+            onItemOverridden={(updated) =>
+              setBatchResult((current) =>
+                current
+                  ? { ...current, results: current.results.map((item) => (item.verification_id === updated.verification_id ? updated : item)) }
+                  : current
+              )
+            }
+          />
+        )}
       </form>
     </main>
   );
 }
 
-function BatchResultView({ result, previewUrls }: { result: BatchVerificationResult; previewUrls: string[] }) {
+function BatchResultView({
+  result,
+  previewUrls,
+  onItemOverridden
+}: {
+  result: BatchVerificationResult;
+  previewUrls: string[];
+  onItemOverridden: (updated: VerificationResult) => void;
+}) {
   const percent = result.total > 0 ? Math.round((result.completed / result.total) * 100) : 0;
   return (
     <section className="result-panel" aria-live="polite">
       <div className="result-header">
         <div>
           <p className="eyebrow">Batch result</p>
-          <h2>{result.status === "processing" ? `Checking labels... ${result.completed} of ${result.total}` : `${result.completed} of ${result.total} checked`}</h2>
+          <h2 className="batch-status-heading">{result.status === "processing" ? `Checking labels... ${result.completed} of ${result.total}` : `${result.completed} of ${result.total} checked`}</h2>
         </div>
+        {result.status === "completed" && (
+          <div className="export-actions">
+            <a className="secondary-action" href={batchExportUrl(result.batch_id, "csv")}><Download aria-hidden="true" size={16} />Export CSV</a>
+            <a className="secondary-action" href={batchExportUrl(result.batch_id, "json")}><Download aria-hidden="true" size={16} />Export JSON</a>
+          </div>
+        )}
       </div>
       {result.status === "processing" && (
         <div className="batch-progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
@@ -243,13 +295,14 @@ function BatchResultView({ result, previewUrls }: { result: BatchVerificationRes
             <summary>
               <ChevronRight className="batch-chevron" aria-hidden="true" size={18} />
               {previewUrls[index] && <img className="batch-thumbnail" src={previewUrls[index]} alt="" />}
-              <span className="batch-file"><strong>{item.source_filename || `Image ${index + 1}`}</strong><small>{item.verification_id}</small></span>
+              <span className="batch-file"><strong>{index + 1}. {item.source_filename || `Image ${index + 1}`}</strong><small>{item.verification_id}</small></span>
               <span className={`check-status ${item.status}`}>{item.status}</span>
               <span>{item.checks.filter((check) => check.status === "match").length} matches, {item.checks.filter((check) => check.status !== "match").length} needing review</span>
             </summary>
             <div className="batch-checks">
               {item.checks.map((check) => <div key={check.field}><strong>{fieldLabels[check.field] ?? "Government Warning"}</strong><span className={`check-status ${check.status}`}>{check.status}</span><span>{check.label_value || "Not detected"}</span></div>)}
             </div>
+            <OverridePanel result={item} onOverridden={onItemOverridden} />
           </details>
         ))}
       </div>
@@ -257,7 +310,17 @@ function BatchResultView({ result, previewUrls }: { result: BatchVerificationRes
   );
 }
 
-function VerificationResultView({ result, previewUrl, onReset }: { result: VerificationResult; previewUrl: string | null; onReset: () => void }) {
+function VerificationResultView({
+  result,
+  previewUrl,
+  onReset,
+  onOverridden
+}: {
+  result: VerificationResult;
+  previewUrl: string | null;
+  onReset: () => void;
+  onOverridden: (updated: VerificationResult) => void;
+}) {
   return (
     <section className="result-panel" aria-live="polite">
       <div className="result-header">
@@ -287,7 +350,114 @@ function VerificationResultView({ result, previewUrl, onReset }: { result: Verif
           ))}
         </div>
       </div>
+      <OverridePanel result={result} onOverridden={onOverridden} />
       <div className="review-reset"><button className="secondary-action" type="button" onClick={onReset}><Upload aria-hidden="true" size={16} />Review another image</button></div>
     </section>
+  );
+}
+
+/** Requirement 2.1: an agent can manually correct extracted values or override the automated
+ * result - automation is always a recommendation, this is how the agent's own judgment
+ * becomes the recorded, final decision. Used for both the single-review result and each batch
+ * row, so a correction made while working a batch queue behaves the same as reviewing one item
+ * at a time. */
+function OverridePanel({ result, onOverridden }: { result: VerificationResult; onOverridden: (updated: VerificationResult) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [correctedValues, setCorrectedValues] = useState<Record<string, string>>({});
+  const [note, setNote] = useState("");
+  const [overriddenBy, setOverriddenBy] = useState("");
+  const [submitting, setSubmitting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function startEditing() {
+    setCorrectedValues(Object.fromEntries(result.checks.map((check) => [check.field, check.label_value ?? ""])));
+    setExpanded(true);
+  }
+
+  async function submitDecision(status: "pass" | "review" | "fail") {
+    setError(null);
+    setSubmitting(status);
+    const corrected_fields = Object.fromEntries(
+      result.checks
+        .filter((check) => correctedValues[check.field] !== undefined && correctedValues[check.field] !== (check.label_value ?? ""))
+        .map((check) => [check.field, correctedValues[check.field]])
+    );
+    try {
+      const updated = await overrideVerification(result.verification_id, {
+        status,
+        note: note.trim() || undefined,
+        overridden_by: overriddenBy.trim() || undefined,
+        corrected_fields
+      });
+      onOverridden(updated);
+      setExpanded(false);
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "Could not save the correction.");
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
+  if (!expanded) {
+    return (
+      <div className="override-panel">
+        {result.override && (
+          <p className="override-summary">
+            Agent decision: <strong className={`check-status ${result.override.status}`}>{result.override.status}</strong>
+            {result.override.overridden_by ? ` by ${result.override.overridden_by}` : ""}
+            {result.override.note ? ` — "${result.override.note}"` : ""}
+          </p>
+        )}
+        <button className="secondary-action override-toggle" type="button" onClick={startEditing}>
+          <PenLine aria-hidden="true" size={16} />
+          {result.override ? "Correct Or Change Decision" : "Correct Values Or Override Results"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="override-panel expanded">
+      <div className="override-panel-header">
+        <p className="eyebrow">Agent review</p>
+        <button className="icon-button" type="button" onClick={() => setExpanded(false)} aria-label="Cancel correction">
+          <X aria-hidden="true" size={16} />
+        </button>
+      </div>
+      <p className="override-hint">Fix any extracted label value below if it's wrong, then record your final decision. Only changed values are saved as corrections.</p>
+      <div className="override-fields">
+        {result.checks.map((check) => (
+          <label className="field" key={check.field}>
+            <span>{fieldLabels[check.field] ?? "Government Warning"}</span>
+            <input
+              value={correctedValues[check.field] ?? ""}
+              onChange={(event) => setCorrectedValues((current) => ({ ...current, [check.field]: event.target.value }))}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="form-grid override-meta">
+        <label className="field">
+          <span>Your name (optional)</span>
+          <input value={overriddenBy} onChange={(event) => setOverriddenBy(event.target.value)} placeholder="Agent name" />
+        </label>
+        <label className="field">
+          <span>Note (optional)</span>
+          <input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Why you're correcting or overriding this" />
+        </label>
+      </div>
+      {error && <div className="notice error"><AlertCircle size={18} />{error}</div>}
+      <div className="override-actions">
+        <button className="decision-action pass" type="button" disabled={submitting !== null} onClick={() => submitDecision("pass")}>
+          {submitting === "pass" ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />}Approve
+        </button>
+        <button className="decision-action review" type="button" disabled={submitting !== null} onClick={() => submitDecision("review")}>
+          {submitting === "review" ? <LoaderCircle className="spin" size={16} /> : null}Send to review
+        </button>
+        <button className="decision-action fail" type="button" disabled={submitting !== null} onClick={() => submitDecision("fail")}>
+          {submitting === "fail" ? <LoaderCircle className="spin" size={16} /> : null}Reject
+        </button>
+      </div>
+    </div>
   );
 }
