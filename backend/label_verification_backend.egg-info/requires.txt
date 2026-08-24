@@ -5,6 +5,10 @@ pydantic<3.0,>=2.8
 pillow<12.0,>=10.0
 opencv-python-headless<5.0,>=4.10
 pytesseract<1.0,>=0.3.13
+anthropic<1.0,>=0.69
+
+[rapidocr]
+rapidocr-onnxruntime<2.0,>=1.3
 
 [test]
 pytest<9.0,>=8.0

@@ -29,6 +29,11 @@ h2 { max-width: 620px; margin-bottom: 14px; font-size: clamp(2rem, 4vw, 3.8rem);
 .mode-switcher { display: flex; grid-column: 1 / -1; gap: 4px; width: fit-content; border-bottom: 1px solid #cdbfa9; padding: 4px; background: rgba(255, 253, 247, 0.6); }
 .mode-tab { border: 0; border-bottom: 2px solid transparent; padding: 11px 16px; color: #69695e; background: transparent; font: 700 0.78rem Arial, sans-serif; cursor: pointer; }
 .mode-tab.active { border-bottom-color: #8a4e2d; color: #8a4e2d; background: #fffdf7; }
+.claude-toggle { display: flex; grid-column: 1 / -1; align-items: flex-start; gap: 12px; margin-top: 14px; border: 1px solid #cdbfa9; border-radius: 6px; padding: 13px 16px; background: rgba(255, 253, 247, 0.6); cursor: pointer; }
+.claude-toggle input { margin-top: 3px; width: 16px; height: 16px; accent-color: #8a4e2d; cursor: pointer; }
+.claude-toggle span { display: grid; gap: 3px; }
+.claude-toggle strong { color: #24251f; font: 700 0.82rem Arial, sans-serif; }
+.claude-toggle small { color: #69695e; font: 0.78rem/1.4 Arial, sans-serif; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 18px; margin-top: 10px; }
 .field { display: grid; gap: 8px; color: #69695e; font: 700 0.75rem Arial, sans-serif; }
 .field input { width: 100%; border: 1px solid #c8baa4; border-radius: 4px; padding: 13px 14px; color: #24251f; background: #fffdf7; outline: none; }
@@ -68,8 +73,13 @@ h2 { max-width: 620px; margin-bottom: 14px; font-size: clamp(2rem, 4vw, 3.8rem);
 .notice { display: flex; align-items: center; gap: 9px; margin-top: 18px; padding: 12px 14px; color: #5e633e; background: #eef0dc; font: 0.88rem/1.4 Arial, sans-serif; }
 .notice.error { grid-column: 1 / -1; color: #8a382f; background: #f6e3dc; }
 .result-panel { grid-column: 1 / -1; margin-top: 24px; border-top: 1px solid #b5a68f; padding-top: 26px; }
-.result-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+.result-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 12px 18px; }
 .result-title { margin: 0; font-size: 3rem; font-weight: 500; text-transform: capitalize; }
+/* The batch heading holds dynamic sentence-length text ("Checking labels... 0 of 3"), not a
+   short page title, so it needs its own size instead of inheriting the giant default `h2`
+   (font-size: clamp(2rem, 4vw, 3.8rem)) meant for headings like "Label Verification" - at that
+   size a single word like the trailing item count could wrap onto its own line. */
+.batch-status-heading { max-width: none; margin-bottom: 0; font-size: clamp(1.3rem, 2.6vw, 1.9rem); line-height: 1.3; }
 .result-title.pass { color: #5e633e; }
 .result-title.review { color: #8a4e2d; }
 .result-title.fail { color: #8a382f; }
@@ -85,11 +95,37 @@ h2 { max-width: 620px; margin-bottom: 14px; font-size: clamp(2rem, 4vw, 3.8rem);
 .check-values { display: grid; gap: 4px; }
 .check-values small { color: #8a4e2d; line-height: 1.35; }
 .check-status { font-weight: 700; text-transform: capitalize; }
-.check-status.match { color: #5e633e; }
+.check-status.match, .check-status.pass { color: #5e633e; }
 .check-status.mismatch, .check-status.review { color: #8a4e2d; }
-.check-status.missing { color: #8a382f; }
+.check-status.missing, .check-status.fail { color: #8a382f; }
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.export-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.export-actions .secondary-action { padding: 9px 13px; font-size: 0.78rem; text-decoration: none; }
+
+.override-panel { margin-top: 16px; border-top: 1px solid #ded3c2; padding-top: 16px; }
+.override-summary { margin: 0 0 12px; color: #69695e; font: 0.84rem/1.5 Arial, sans-serif; }
+.override-toggle { padding: 10px 14px; font-size: 0.78rem; }
+.override-panel.expanded { border: 1px solid #cdbfa9; border-radius: 6px; padding: 16px 18px; background: rgba(238, 240, 220, 0.4); }
+.override-panel-header { display: flex; justify-content: space-between; align-items: center; }
+.override-panel-header .eyebrow { margin: 0; }
+.icon-button { display: inline-flex; border: 0; padding: 4px; color: #69695e; background: transparent; cursor: pointer; }
+.override-hint { margin: 6px 0 16px; color: #69695e; font: 0.82rem/1.5 Arial, sans-serif; }
+.override-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.override-meta { margin-top: 14px; }
+.override-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.decision-action { display: inline-flex; align-items: center; gap: 7px; border: 1px solid transparent; border-radius: 4px; padding: 11px 16px; font: 700 0.82rem Arial, sans-serif; cursor: pointer; }
+.decision-action:disabled { opacity: 0.6; cursor: wait; }
+.decision-action.pass { border-color: #5e633e; color: #fffdf7; background: #5e633e; }
+.decision-action.review { border-color: #8a4e2d; color: #8a4e2d; background: #fffdf7; }
+.decision-action.fail { border-color: #8a382f; color: #8a382f; background: #fffdf7; }
+
+@media (max-width: 600px) {
+  .override-fields { grid-template-columns: 1fr; }
+  .override-actions { flex-direction: column; }
+  .override-actions > * { width: 100%; justify-content: center; }
+}
 
 @media (max-width: 860px) {
   .workspace { grid-template-columns: minmax(0, 1fr); }

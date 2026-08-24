@@ -10,6 +10,9 @@ Requires-Dist: pydantic<3.0,>=2.8
 Requires-Dist: pillow<12.0,>=10.0
 Requires-Dist: opencv-python-headless<5.0,>=4.10
 Requires-Dist: pytesseract<1.0,>=0.3.13
+Requires-Dist: anthropic<1.0,>=0.69
 Provides-Extra: test
 Requires-Dist: pytest<9.0,>=8.0; extra == "test"
 Requires-Dist: httpx<1.0,>=0.27; extra == "test"
+Provides-Extra: rapidocr
+Requires-Dist: rapidocr-onnxruntime<2.0,>=1.3; extra == "rapidocr"

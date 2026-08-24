@@ -4,10 +4,14 @@ from difflib import SequenceMatcher
 
 from app.services.extraction import ExtractedFields
 
+# The two numbered sentences are separated by a period, not a semicolon - confirmed against
+# the official 27 CFR 16.21 text and against every sample label in uploads/ that renders it
+# (e.g. ttb_test.jpg, label1.png). An earlier version of this constant used a semicolon,
+# which meant the exact-match check could never pass for a genuinely correctly-worded label.
 EXPECTED_WARNING_PREFIX = "GOVERNMENT WARNING:"
 EXPECTED_WARNING_TEXT = (
     "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink alcoholic "
-    "beverages during pregnancy because of the risk of birth defects; (2) Consumption of alcoholic "
+    "beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic "
     "beverages impairs your ability to drive a car or operate machinery, and may cause health "
     "problems."
 )
@@ -31,8 +35,31 @@ def normalize_warning(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip())
 
 
-def _brand_similarity(left: str, right: str) -> float:
+def _text_similarity(left: str, right: str) -> float:
     return SequenceMatcher(None, normalize_text(left), normalize_text(right)).ratio()
+
+
+# Claude vision is instructed to transcribe the producer field "from a statement such as
+# 'Bottled by', 'Distilled by', or 'Imported by'" (see claude_extraction.py) and does so
+# verbatim, boilerplate phrase included (e.g. "DISTILLED AND BOTTLED BY: ABC DISTILLERY,
+# FREDERICK, MD"). The local OCR pipeline's producer field never includes this phrase in the
+# first place - app.services.extraction._find_producer captures only the text *after* it. An
+# application value an agent types is almost always just the name and address, with no
+# statement phrase at all, so comparing the raw strings produces a spurious mismatch on an
+# otherwise-identical producer purely because one side carries this label and the other
+# doesn't. Stripping a recognized statement prefix before comparing (but keeping the original,
+# unstripped value for display/evidence) fixes that without loosening the comparison on a
+# genuinely different producer name or address - requirements.md 2.4 calls for producer/address
+# differences to be "surfaced clearly", not normalized away.
+_PRODUCER_STATEMENT_PREFIX = re.compile(
+    r"^(?:distilled\s+and\s+bottled\s+by|bottled\s+and\s+distilled\s+by|distilled\s+by|"
+    r"bottled\s+by|manufactured\s+by|produced\s+by|imported\s+by)\s*:?\s*",
+    re.IGNORECASE,
+)
+
+
+def _strip_producer_statement_prefix(value: str) -> str:
+    return _PRODUCER_STATEMENT_PREFIX.sub("", value.strip())
 
 
 def _alcohol_value(value: str) -> float | None:
@@ -56,6 +83,31 @@ def _alcohol_value(value: str) -> float | None:
             return parsed
 
     return None
+
+
+_VOLUME_CONVERSIONS_TO_ML = {
+    "ml": 1.0,
+    "cl": 10.0,
+    "l": 1000.0,
+    "oz": 29.5735295,
+    "floz": 29.5735295,
+}
+
+
+def _volume_in_ml(value: str) -> float | None:
+    """Parse a net-contents string into a canonical milliliter value so formatting
+    differences (spacing, case, unit abbreviation) don't produce a false mismatch."""
+    if not value:
+        return None
+
+    match = re.search(r"(\d{1,5}(?:\.\d+)?)\s*(ml|l|cl|fl\.?\s*oz\.?|floz|oz)\b", value, re.IGNORECASE)
+    if not match:
+        return None
+
+    amount = float(match.group(1))
+    unit = re.sub(r"[.\s]", "", match.group(2).lower())
+    factor = _VOLUME_CONVERSIONS_TO_ML.get(unit)
+    return amount * factor if factor is not None else None
 
 
 def compare_fields(application: ExtractedFields, label: ExtractedFields) -> list[FieldCheck]:
@@ -98,12 +150,12 @@ def compare_fields(application: ExtractedFields, label: ExtractedFields) -> list
             )
         elif field == "brand_name" and normalize_text(application_value) == normalize_text(label_value):
             checks.append(FieldCheck(field, "match", application_value, label_value, 1.0, "Case/whitespace-normalized match."))
-        elif field == "brand_name" and _brand_similarity(application_value, label_value) >= 0.88:
+        elif field == "brand_name" and _text_similarity(application_value, label_value) >= 0.88:
             # Close but not identical even after normalization: this range also contains
             # genuine single-character OCR misreads (e.g. "Throw" vs "Throe"), which a pure
             # similarity score can't distinguish from a harmless formatting difference. Route
             # to review rather than silently auto-approving a name that isn't actually equal.
-            similarity = _brand_similarity(application_value, label_value)
+            similarity = _text_similarity(application_value, label_value)
             checks.append(
                 FieldCheck(
                     field,
@@ -119,6 +171,53 @@ def compare_fields(application: ExtractedFields, label: ExtractedFields) -> list
             label_abv = _alcohol_value(label_value)
             if application_abv is not None and label_abv is not None and abs(application_abv - label_abv) <= 0.5:
                 checks.append(FieldCheck(field, "match", application_value, label_value, 0.95, "ABV values within 0.5 percentage points."))
+            else:
+                checks.append(FieldCheck(field, "mismatch", application_value, label_value, 0.95))
+        elif field == "net_contents" and normalize_text(application_value) != normalize_text(label_value):
+            # Fall back to a unit-normalized numeric comparison (e.g. "750mL" vs "750 mL", or
+            # "0.75 L" vs "750 mL") before treating differently-formatted-but-equal values as
+            # a mismatch. Text that already matches skips straight to the generic match branch
+            # below, same as every other field.
+            application_volume = _volume_in_ml(application_value)
+            label_volume = _volume_in_ml(label_value)
+            if application_volume is not None and label_volume is not None and abs(application_volume - label_volume) <= 1.0:
+                checks.append(FieldCheck(field, "match", application_value, label_value, 0.95, "Net contents match after unit normalization."))
+            else:
+                checks.append(FieldCheck(field, "mismatch", application_value, label_value, 0.95))
+        elif field == "producer" and normalize_text(application_value) != normalize_text(label_value):
+            # See _strip_producer_statement_prefix above - only reached once the plain
+            # normalized-text comparison below has already failed, same "try the strict
+            # comparison first" order net_contents uses just above.
+            application_producer = _strip_producer_statement_prefix(application_value)
+            label_producer = _strip_producer_statement_prefix(label_value)
+            if normalize_text(application_producer) == normalize_text(label_producer):
+                checks.append(
+                    FieldCheck(
+                        field,
+                        "match",
+                        application_value,
+                        label_value,
+                        0.95,
+                        "Producer matches after removing the bottler/distiller/importer statement prefix.",
+                    )
+                )
+            elif _text_similarity(application_producer, label_producer) >= 0.88:
+                # Beyond the statement prefix, real transcriptions also vary in punctuation a
+                # human wouldn't (e.g. a vision model omitting the comma between a distillery
+                # name and its city: "ABC DISTILLERY FREDERICK, MD" vs "ABC Distillery,
+                # Frederick, MD") - the same near-miss situation brand_name already routes to
+                # review rather than silently matching or hard-failing on punctuation alone.
+                similarity = _text_similarity(application_producer, label_producer)
+                checks.append(
+                    FieldCheck(
+                        field,
+                        "review",
+                        application_value,
+                        label_value,
+                        similarity,
+                        f"Producers are similar ({similarity:.0%} match) but not identical after normalization; confirm this is the same producer before approving.",
+                    )
+                )
             else:
                 checks.append(FieldCheck(field, "mismatch", application_value, label_value, 0.95))
         elif normalize_text(application_value) == normalize_text(label_value):

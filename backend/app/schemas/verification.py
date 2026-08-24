@@ -13,6 +13,7 @@ class VerificationResult(BaseModel):
     extracted_fields: "ExtractedFieldsResult"
     raw_text: str = ""
     message: str | None = None
+    override: "OverrideInfo | None" = None
 
 
 class QualityResult(BaseModel):
@@ -38,6 +39,27 @@ class ExtractedFieldsResult(BaseModel):
     producer: str | None = None
     country_of_origin: str | None = None
     government_warning: str | None = None
+
+
+class OverrideRequest(BaseModel):
+    """An agent's manual correction of extracted values and/or the final pass/review/fail
+    call - requirements.md 2.1: 'Manually correct extracted values or override an automated
+    result.' Automation only ever produces a recommendation; this is how the agent's own
+    judgment becomes the final, recorded decision."""
+
+    status: Literal["pass", "review", "fail"]
+    note: str | None = None
+    overridden_by: str | None = None
+    corrected_fields: dict[str, str] = Field(default_factory=dict)
+
+
+class OverrideInfo(BaseModel):
+    status: Literal["pass", "review", "fail"]
+    previous_status: str
+    note: str | None = None
+    overridden_by: str | None = None
+    corrected_fields: dict[str, str] = Field(default_factory=dict)
+    created_at: str
 
 
 VerificationResult.model_rebuild()

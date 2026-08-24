@@ -10,16 +10,48 @@ class OCRWord:
     box: tuple[int, int, int, int]
 
 
+# Bound to keep multi-pass OCR cost roughly constant regardless of source resolution. A phone
+# photo commonly comes in at 12+ megapixels (e.g. 4032x3024); printed label text doesn't get
+# more legible to Tesseract past a couple thousand pixels on the long edge, but every pass
+# below (2 full-image reads plus up to two upscaled-crop passes) scales with pixel count, so a
+# 12MP source was taking 10+ seconds end to end. Downscaling once here bounds every pass
+# without touching the preprocessed artifact written to disk. Boxes returned by this function
+# are in the coordinate space of the (possibly downscaled) working image, which is fine since
+# nothing outside a single read_label() call depends on them lining up with the original file.
+_MAX_OCR_DIMENSION = 2000
+
+
 def read_label(image_path: Path) -> tuple[list[OCRWord], str]:
     """Run local Tesseract and return text with confidence and evidence boxes."""
     import pytesseract
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     executable = _find_tesseract()
     if executable:
         pytesseract.pytesseract.tesseract_cmd = executable
 
-    with Image.open(image_path) as image:
+    with Image.open(image_path) as opened:
+        # Phone cameras commonly store the sensor's native (often landscape) orientation and
+        # record the intended display rotation as EXIF metadata instead of rotating the pixel
+        # data - e.g. a portrait phone photo saved as 4032x3024 pixels with a 90-degree EXIF
+        # orientation tag. preprocess_image already corrects this for the preprocessed
+        # candidate, but this function is also called directly on the *original* file as a
+        # fallback candidate (see pipeline.py), which needs the same correction - without it,
+        # Tesseract reads a sideways image and both text and every crop-region heuristic below
+        # (which assume the label is right-side up) produce poor results.
+        image = ImageOps.exif_transpose(opened)
+        # pytesseract only accepts a fixed allowlist of PIL format strings (PNG, JPEG, ...)
+        # and raises TypeError('Unsupported image format/type') for anything else. Some real
+        # phone photos - notably iPhone photos taken in Portrait mode - decode fine in Pillow
+        # but report format "MPO" (Multi-Picture Object), which isn't on that allowlist and
+        # would otherwise crash OCR outright. Clearing the format makes pytesseract fall back
+        # to re-encoding the in-memory pixel data as PNG, which works regardless of the
+        # original file format.
+        image.format = None
+        if max(image.size) > _MAX_OCR_DIMENSION:
+            ratio = _MAX_OCR_DIMENSION / max(image.size)
+            image = image.resize((max(1, round(image.width * ratio)), max(1, round(image.height * ratio))))
+
         candidates = [
             _words_from_data(pytesseract.image_to_data(image, config=f"--psm {psm}", output_type=pytesseract.Output.DICT))
             for psm in (3, 11)
