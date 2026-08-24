@@ -2,6 +2,8 @@
 
 A prototype for comparing alcohol label artwork with application data, for TTB compliance agent review.
 
+**Live demo:** [https://treasury-take-home-scwg.onrender.com/](https://treasury-take-home-scwg.onrender.com/) - deployed via the Render setup described in [Deployment](#deployment) below. It's a free-tier instance, so it spins down after 15 minutes idle; the first request after that can take up to a minute to wake it back up (see "Free-tier caveats").
+
 ## What It Does
 
 An agent provides application values and a label image. The backend then:
@@ -166,11 +168,13 @@ The [Dockerfile](Dockerfile) builds the Vite frontend and copies it into the Fas
 
 ### Deploy for free (Render)
 
+This is exactly how the live demo linked at the top of this README is running:
+
 1. Push this repository to GitHub (already done if you're reading this from the repo).
 2. Create a free account at [render.com](https://render.com) (no credit card required for the free web service tier).
 3. In the Render dashboard, choose **New > Blueprint** and point it at this repository - it will pick up [render.yaml](render.yaml) automatically and build [Dockerfile](Dockerfile). (Alternatively, choose **New > Web Service**, select **Docker** as the environment, and leave the Dockerfile path as the repository root.)
-4. Select the **Free** instance type and deploy. Render assigns a public `https://<service-name>.onrender.com` URL once the build finishes.
-5. Optionally, in the service's **Environment** tab, add `ANTHROPIC_API_KEY` (see [render.yaml](render.yaml) - it's declared with `sync: false` so Render won't ask for it in the Blueprint flow, only in the dashboard) to make the opt-in Claude extraction checkbox usable. The default local-OCR path works either way.
+4. Select the **Free** instance type and deploy. Render assigns a public `https://<service-name>.onrender.com` URL once the build finishes - Render builds the [Dockerfile](Dockerfile) directly (Node stage for the frontend, then the Python/Tesseract backend stage), so there's no separate build configuration to set beyond pointing it at this repo.
+5. Optionally, in the service's **Environment** tab, add `ANTHROPIC_API_KEY` (see [render.yaml](render.yaml) - it's declared with `sync: false` so Render won't ask for it in the Blueprint flow, only in the dashboard) to make the opt-in Claude extraction checkbox usable. The default local-OCR path works either way; without this key, the "Use Claude AI extraction" checkbox falls back to local OCR with an explanatory note rather than actually calling Claude.
 
 Any other Docker-friendly free host (Fly.io, Hugging Face Spaces with the Docker SDK) works the same way, since the app just needs a normal long-lived container - not a serverless function platform. Serverless hosts such as Vercel or Netlify are not suitable for the backend: their functions can't install the Tesseract system binary, their execution-time limits (seconds) are incompatible with the batch endpoint's 200-300 image workload, and their filesystem isn't persistent across invocations, which the SQLite store and temporary upload handling both rely on.
 
